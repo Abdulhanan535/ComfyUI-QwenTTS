@@ -1,4 +1,4 @@
-# ComfyUI-QwenTTS
+# ComfyUI-QwenTTS-Turing
 
 A clean, efficient ComfyUI custom node pack for **Qwen3-TTS**. It provides **CustomVoice**, **VoiceDesign**, and **VoiceClone** workflows with strict ComfyUI compatibility and practical controls for quality, speed, and stability.
 
@@ -73,12 +73,14 @@ Install requirements in the ComfyUI-QwenTTS folder:
 
 Restart ComfyUI after installation.
 
-### Optional: FlashAttention 2 (Speed Up on CUDA)
+### Optional: FlashAttention 2 (Speed Up on CUDA, TURING ONLY)
 
-If you have a compatible NVIDIA GPU, FlashAttention 2 can improve speed.
+If you have a compatible TURING NVIDIA GPU, FlashAttention 2 can improve speed.
 
 ```bash
-pip install flash-attn --no-build-isolation
+git clone https://github.com/ssiu/flash-attention-turing
+cd flash-attention-turing
+pip install . --no-build-isolation
 ```
 
 > [!NOTE]
