@@ -43,8 +43,7 @@ from transformers.modeling_outputs import (BaseModelOutputWithPast,
                                            CausalLMOutputWithPast, ModelOutput)
 from transformers.modeling_rope_utils import (ROPE_INIT_FUNCTIONS,
                                               dynamic_rope_update)
-from transformers.modeling_utils import (ALL_ATTENTION_FUNCTIONS,
-                                         PreTrainedModel)
+from transformers.modeling_utils import PreTrainedModel
 from transformers.processing_utils import Unpack
 from transformers.utils import can_return_tuple, logging
 from transformers.utils.hub import cached_file
@@ -791,9 +790,45 @@ class Qwen3TTSTalkerAttention(nn.Module):
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_values.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
+        # FlashAttention Turing Integration
+        if (
+            IS_TURING_FLASH_ATTN_AVAILABLE
+            and self.head_dim == 128
+            and attention_mask is None
+            and not self.training  # Typically inference optimization
+            and hidden_states.shape[1] % 128 == 0
+        ):
+             # flash_attn_func(q, k, v, batch_size, seq_len, num_heads, head_dim)
+             # Expected shapes: (batch_size, seq_len, num_heads, head_dim)
+             # Current shapes: query_states: (batch, num_heads, seq_len, head_dim) -> need transpose
+             
+             q_flash = query_states.transpose(1, 2).contiguous()
+             k_flash = key_states.transpose(1, 2).contiguous()
+             v_flash = value_states.transpose(1, 2).contiguous()
+             
+             print(f"Using Turing Flash Attention in Qwen3TTSTalkerAttention: shape={q_flash.shape}")
+             batch_size, seq_len, num_heads, head_dim = q_flash.shape
+             
+             attn_output = flash_attn_func(
+                 q_flash, 
+                 k_flash, 
+                 v_flash, 
+                 batch_size, 
+                 seq_len, 
+                 num_heads, 
+                 head_dim
+             )
+             
+             # Output is already (batch, seq_len, num_heads, head_dim), reshape for o_proj
+             attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+             attn_output = self.o_proj(attn_output)
+             
+             # Flash attention doesn't return weights usually, return None or dummy
+             return attn_output, None
+
         attention_interface: Callable = eager_attention_forward
-        if self.config._attn_implementation != "eager":
-            attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+        # if self.config._attn_implementation != "eager":
+        #    attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
         attn_output, attn_weights = attention_interface(
             self,
@@ -960,6 +995,7 @@ class Qwen3TTSAttention(nn.Module):
              k_flash = key_states.transpose(1, 2).contiguous()
              v_flash = value_states.transpose(1, 2).contiguous()
              
+             print(f"Using Turing Flash Attention in Qwen3TTSAttention: shape={q_flash.shape}")
              batch_size, seq_len, num_heads, head_dim = q_flash.shape
              
              attn_output = flash_attn_func(
@@ -980,8 +1016,8 @@ class Qwen3TTSAttention(nn.Module):
              return attn_output, None
 
         attention_interface: Callable = eager_attention_forward
-        if self.config._attn_implementation != "eager":
-            attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+        # if self.config._attn_implementation != "eager":
+        #     attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
         attn_output, attn_weights = attention_interface(
             self,
